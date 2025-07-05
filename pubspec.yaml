@@ -1,5 +1,5 @@
 name: gbk2utf
-description: A sample command-line application with basic argument parsing.
+description: A simple library/CLI for converting GBK-Encoded files to UTF-8
 version: 1.0.0
 repository: https://github.com/sr229/gbk2utf
 
