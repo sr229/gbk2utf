@@ -2,8 +2,7 @@ import "dart:io";
 import "dart:convert";
 
 import "package:args/args.dart";
-import "package:gbk2utf/gbk_decoder.dart";
-import "package:gbk2utf/gbk_encoder.dart";
+import "package:gbk2utf/converter.dart";
 
 const String version = "0.0.1";
 
@@ -90,6 +89,9 @@ Future<void> convertFileEncoding(
       print("Processing: $filePath");
     }
 
+    // Create GBK codec instance
+    final gbkCodec = GbkCodec();
+
     // Read file as bytes
     final sourceBytes = await file.readAsBytes();
     List<int> convertedBytes;
@@ -99,9 +101,8 @@ Future<void> convertFileEncoding(
       try {
         // First decode as UTF-8 to verify it's valid UTF-8
         final utf8String = utf8.decode(sourceBytes);
-        // Then encode to GBK using our encoder
-        final gbkEncoder = GbkEncoder();
-        convertedBytes = gbkEncoder.convert(utf8String);
+        // Then encode to GBK using our codec
+        convertedBytes = gbkCodec.encode(utf8String);
       } catch (e) {
         print("Error: File $filePath is not valid UTF-8: $e");
         return;
@@ -109,10 +110,10 @@ Future<void> convertFileEncoding(
     } else {
       // Convert GBK to UTF-8 (default)
       try {
-        // Use our GBK decoder
-        final gbkDecoder = GbkDecoder();
-        final utf8String = gbkDecoder.convert(sourceBytes);
-        convertedBytes = utf8.encode(utf8String);
+        // Use our GBK codec to decode GBK to string
+        final decodedString = gbkCodec.decode(sourceBytes);
+        // Then encode as UTF-8
+        convertedBytes = utf8.encode(decodedString);
       } catch (e) {
         print("Error converting GBK file $filePath: $e");
         return;
@@ -122,13 +123,21 @@ Future<void> convertFileEncoding(
     // Determine output path
     String outputPath;
     if (outputDir != null) {
-      final fileName = filePath.split(Platform.pathSeparator).last;
-      outputPath = "$outputDir${Platform.pathSeparator}$fileName";
+      // Extract just the filename from the full path
+      final fileName = Uri.file(filePath).pathSegments.last;
+      outputPath = Uri.directory(outputDir).resolve(fileName).toFilePath();
+
+      if (verbose) {
+        print("Output path: $outputPath");
+      }
 
       // Ensure output directory exists
       final outputDirectory = Directory(outputDir);
       if (!await outputDirectory.exists()) {
         await outputDirectory.create(recursive: true);
+        if (verbose) {
+          print("Created output directory: $outputDir");
+        }
       }
     } else {
       outputPath = filePath;
