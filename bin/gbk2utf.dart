@@ -2,6 +2,7 @@ import "dart:io";
 import "dart:convert";
 
 import "package:args/args.dart";
+import "package:path/path.dart" show join, dirname, basename;
 import "utils.dart";
 
 ArgParser buildParser() {
@@ -116,21 +117,36 @@ Future<void> convertFileEncoding(
 
     if (outputDir != null) {
       // Extract just the filename from the full path
-      final fileName = Uri.file(filePath).pathSegments.last;
+      final fileName = basename(filePath);
+
+      // Preserve directory structure relative to input directory
+      // First, determine the common base directory from the input paths
+      final inputBaseDir = File(filePath).parent.path;
+
+      // Calculate path segments to preserve directory structure
+      String relativePath = "";
+
+      // If the input path has subdirectories we want to preserve in the output
+      if (inputBaseDir != dirname(filePath)) {
+        // Get subdirectory structure to preserve
+        final segments = dirname(filePath).split(Platform.pathSeparator);
+        final baseSegments = inputBaseDir.split(Platform.pathSeparator);
+
+        // Extract subdirectory path that needs to be preserved
+        if (segments.length > baseSegments.length) {
+          final preservedSegments = segments.sublist(baseSegments.length);
+          relativePath = preservedSegments.join(Platform.pathSeparator);
+        }
+      }
 
       // Decode the filename if requested (GBK -> UTF-8)
       if (correctFilename) {
         try {
           decodedFileName = gbkCodec.decode(utf8.encode(fileName));
-          if (decodedFileName != fileName) {
-            if (verbose) {
-              print("Corrected filename: $fileName -> $decodedFileName");
-            }
-          } else {
-            decodedFileName = fileName;
+          if (decodedFileName != fileName && verbose) {
+            print("Corrected filename: $fileName -> $decodedFileName");
           }
         } catch (e) {
-          // If decoding fails, use the original filename
           print("Warning: Failed to decode filename $fileName: $e");
           decodedFileName = fileName;
         }
@@ -138,35 +154,37 @@ Future<void> convertFileEncoding(
         decodedFileName = fileName;
       }
 
-      outputPath = Uri.directory(
-        outputDir,
-      ).resolve(decodedFileName).toFilePath();
+      // Create target path preserving directory structure
+      if (relativePath.isNotEmpty) {
+        final targetDir = join(outputDir, relativePath);
+        outputPath = join(targetDir, decodedFileName);
+      } else {
+        outputPath = join(outputDir, decodedFileName);
+      }
 
       if (verbose) {
         print("Output path: $outputPath");
       }
 
       // Ensure output directory exists
-      final outputDirectory = Directory(outputDir);
+      final outputDirectory = Directory(dirname(outputPath));
       if (!await outputDirectory.exists()) {
         await outputDirectory.create(recursive: true);
         if (verbose) {
-          print("Created output directory: $outputDir");
+          print("Created output directory: ${outputDirectory.path}");
         }
       }
     } else {
       // When not using output directory, we need to check if we need to rename the file
       if (correctFilename) {
-        final fileName = Uri.file(filePath).pathSegments.last;
+        final fileName = basename(filePath);
         try {
           decodedFileName = gbkCodec.decode(utf8.encode(fileName));
 
           if (decodedFileName != fileName) {
             // Filename needs correction
-            final parent = file.parent.path;
-            outputPath = Uri.directory(
-              parent,
-            ).resolve(decodedFileName).toFilePath();
+            final parent = dirname(filePath);
+            outputPath = join(parent, decodedFileName);
 
             if (verbose) {
               print("Corrected filename: $fileName -> $decodedFileName");

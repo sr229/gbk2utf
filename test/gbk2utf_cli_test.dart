@@ -531,7 +531,7 @@ void main() {
       await renameFile(oldPath, newDirPath);
 
       // Check that new file exists with the same name in the new directory
-      final expectedNewFile = File("${newDirPath}/old_name.txt");
+      final expectedNewFile = File("$newDirPath/old_name.txt");
       expect(await expectedNewFile.exists(), isTrue);
 
       // Verify content is preserved

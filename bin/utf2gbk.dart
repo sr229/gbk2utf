@@ -2,6 +2,7 @@ import "dart:io";
 import "dart:convert";
 
 import "package:args/args.dart";
+import "package:path/path.dart" show join, dirname, basename;
 import "utils.dart";
 
 ArgParser buildParser() {
@@ -97,19 +98,46 @@ Future<void> convertFileEncoding(
 
     if (outputDir != null) {
       // Extract just the filename from the full path
-      final fileName = Uri.file(filePath).pathSegments.last;
-      outputPath = Uri.directory(outputDir).resolve(fileName).toFilePath();
+      final fileName = basename(filePath);
+
+      // Preserve directory structure relative to input directory
+      // First, determine the common base directory from the input paths
+      final inputBaseDir = File(filePath).parent.path;
+
+      // Calculate path segments to preserve directory structure
+      String relativePath = "";
+
+      // If the input path has subdirectories we want to preserve in the output
+      if (inputBaseDir != dirname(filePath)) {
+        // Get subdirectory structure to preserve
+        final segments = dirname(filePath).split(Platform.pathSeparator);
+        final baseSegments = inputBaseDir.split(Platform.pathSeparator);
+
+        // Extract subdirectory path that needs to be preserved
+        if (segments.length > baseSegments.length) {
+          final preservedSegments = segments.sublist(baseSegments.length);
+          relativePath = preservedSegments.join(Platform.pathSeparator);
+        }
+      }
+
+      // Create target path preserving directory structure
+      if (relativePath.isNotEmpty) {
+        final targetDir = join(outputDir, relativePath);
+        outputPath = join(targetDir, fileName);
+      } else {
+        outputPath = join(outputDir, fileName);
+      }
 
       if (verbose) {
         print("Output path: $outputPath");
       }
 
       // Ensure output directory exists
-      final outputDirectory = Directory(outputDir);
+      final outputDirectory = Directory(dirname(outputPath));
       if (!await outputDirectory.exists()) {
         await outputDirectory.create(recursive: true);
         if (verbose) {
-          print("Created output directory: $outputDir");
+          print("Created output directory: ${outputDirectory.path}");
         }
       }
     } else {
