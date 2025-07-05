@@ -99,13 +99,124 @@ Future<void> convertFileEncoding(
 
     // Read file as bytes
     final sourceBytes = await file.readAsBytes();
+
+    // Check if file is likely binary
+    bool isBinary = isBinaryFile(sourceBytes);
+
+    if (isBinary) {
+      if (verbose) {
+        print("Detected binary file, skipping content conversion: $filePath");
+      }
+
+      // Just copy the file to the output location if needed
+      // but still handle filename correction if requested
+      String outputPath = filePath;
+      String? decodedFileName;
+
+      // Handle filename correction and output directory as before
+      if (outputDir != null) {
+        // Extract just the filename from the full path
+        final fileName = basename(filePath);
+
+        // Find the most appropriate base directory from input paths
+        String baseDir = _findBaseDir(inputPaths, filePath);
+
+        // Get the subdirectory structure to preserve
+        String subDirPath = "";
+        if (baseDir.isNotEmpty && filePath.startsWith(baseDir)) {
+          // Extract the subdirectory part between baseDir and fileName
+          String dirPart = dirname(filePath);
+          if (dirPart.length > baseDir.length) {
+            subDirPath = dirPart.substring(baseDir.length);
+            // Remove any leading separator if present
+            if (subDirPath.startsWith(Platform.pathSeparator)) {
+              subDirPath = subDirPath.substring(1);
+            }
+          }
+        }
+
+        // Decode the filename if requested (GBK -> UTF-8)
+        if (correctFilename) {
+          try {
+            decodedFileName = gbkCodec.decode(utf8.encode(fileName));
+            if (decodedFileName != fileName && verbose) {
+              print("Corrected filename: $fileName -> $decodedFileName");
+            }
+          } catch (e) {
+            print("Warning: Failed to decode filename $fileName: $e");
+            decodedFileName = fileName;
+          }
+        } else {
+          decodedFileName = fileName;
+        }
+
+        // Create output path with preserved directory structure
+        if (subDirPath.isNotEmpty) {
+          final targetDir = join(outputDir, subDirPath);
+          outputPath = join(targetDir, decodedFileName);
+        } else {
+          outputPath = join(outputDir, decodedFileName);
+        }
+
+        if (verbose) {
+          print("Output path: $outputPath");
+        }
+
+        // Ensure output directory exists
+        final outputDirectory = Directory(dirname(outputPath));
+        if (!await outputDirectory.exists()) {
+          await outputDirectory.create(recursive: true);
+          if (verbose) {
+            print("Created output directory: ${outputDirectory.path}");
+          }
+        }
+      } else {
+        // When not using output directory, we need to check if we need to rename the file
+        if (correctFilename) {
+          final fileName = basename(filePath);
+          try {
+            decodedFileName = gbkCodec.decode(utf8.encode(fileName));
+
+            if (decodedFileName != fileName) {
+              // Filename needs correction
+              final parent = dirname(filePath);
+              outputPath = join(parent, decodedFileName);
+
+              if (verbose) {
+                print("Corrected filename: $fileName -> $decodedFileName");
+              }
+            } else {
+              // No correction needed
+              outputPath = filePath;
+            }
+          } catch (e) {
+            // If decoding fails, use the original filename
+            print("Warning: Failed to decode filename $fileName: $e");
+            outputPath = filePath;
+          }
+        } else {
+          // No filename correction
+          outputPath = filePath;
+        }
+      }
+
+      // Copy the binary file to the output path
+      final outputFile = File(outputPath);
+      await outputFile.writeAsBytes(sourceBytes);
+
+      if (verbose) {
+        print("Copied binary file: $filePath -> $outputPath");
+      }
+
+      return;
+    }
+
+    // Continue with text conversion as before
     List<int> convertedBytes;
 
     // Convert GBK to UTF-8
     try {
-      // Use our GBK codec to decode GBK to string
       final decodedString = gbkCodec.decode(sourceBytes);
-      // Then encode as UTF-8
       convertedBytes = utf8.encode(decodedString);
     } catch (e) {
       print("Error converting GBK file $filePath: $e");

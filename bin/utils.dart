@@ -5,6 +5,37 @@ import "package:gbk2utf/converter.dart";
 const String version = "0.0.1";
 final gbkCodec = GbkCodec();
 
+/// Detects if a file is likely to be binary based on its content
+/// Returns true if the file appears to be binary, false if it's probably text
+bool isBinaryFile(List<int> bytes) {
+  // Sample a portion of the file
+  final sampleSize = bytes.length < 1024 ? bytes.length : 1024;
+  int nullCount = 0;
+  int textCount = 0;
+
+  for (int i = 0; i < sampleSize; i++) {
+    final byte = bytes[i];
+
+    // Count null bytes (common in binary files)
+    if (byte == 0) {
+      nullCount++;
+    }
+
+    // Count text-like bytes
+    if ((byte >= 32 && byte <= 126) || // ASCII printable
+        byte == 9 ||
+        byte == 10 ||
+        byte == 13) {
+      // Tab, LF, CR
+      textCount++;
+    }
+  }
+
+  // If over 10% of the sample is null bytes or less than 80% is text-like,
+  // it's likely a binary file
+  return (nullCount > sampleSize * 0.1) || (textCount < sampleSize * 0.8);
+}
+
 /// Creates backup of a file
 Future<void> createBackup(String filePath, {bool verbose = false}) async {
   try {

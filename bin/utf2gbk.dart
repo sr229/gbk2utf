@@ -81,6 +81,71 @@ Future<void> convertFileEncoding(
 
     // Read file as bytes
     final sourceBytes = await file.readAsBytes();
+
+    // Check if file is likely binary
+    bool isBinary = isBinaryFile(sourceBytes);
+
+    if (isBinary) {
+      if (verbose) {
+        print("Detected binary file, skipping content conversion: $filePath");
+      }
+
+      // Determine output path
+      String outputPath = filePath;
+
+      if (outputDir != null) {
+        // Extract just the filename from the full path
+        final fileName = basename(filePath);
+
+        // Find the most appropriate base directory from input paths
+        String baseDir = _findBaseDir(inputPaths, filePath);
+
+        // Get the subdirectory structure to preserve
+        String subDirPath = "";
+        if (baseDir.isNotEmpty && filePath.startsWith(baseDir)) {
+          // Extract the subdirectory part between baseDir and fileName
+          String dirPart = dirname(filePath);
+          if (dirPart.length > baseDir.length) {
+            subDirPath = dirPart.substring(baseDir.length);
+            // Remove any leading separator if present
+            if (subDirPath.startsWith(Platform.pathSeparator)) {
+              subDirPath = subDirPath.substring(1);
+            }
+          }
+        }
+
+        // Create output path with preserved directory structure
+        if (subDirPath.isNotEmpty) {
+          final targetDir = join(outputDir, subDirPath);
+          outputPath = join(targetDir, fileName);
+        } else {
+          outputPath = join(outputDir, fileName);
+        }
+
+        // Ensure output directory exists
+        final outputDirectory = Directory(dirname(outputPath));
+        if (!await outputDirectory.exists()) {
+          await outputDirectory.create(recursive: true);
+          if (verbose) {
+            print("Created output directory: ${outputDirectory.path}");
+          }
+        }
+      }
+
+      // Just copy the binary file without converting
+      if (outputPath != filePath) {
+        final outputFile = File(outputPath);
+        await outputFile.writeAsBytes(sourceBytes);
+
+        if (verbose) {
+          print("Copied binary file: $filePath -> $outputPath");
+        }
+      }
+
+      return;
+    }
+
+    // Continue with text conversion for non-binary files
     List<int> convertedBytes;
 
     // Convert UTF-8 to GBK
