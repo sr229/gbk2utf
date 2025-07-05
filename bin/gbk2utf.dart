@@ -84,6 +84,7 @@ Future<void> convertFileEncoding(
   String? outputDir,
   bool verbose = false,
   bool correctFilename = true,
+  List<String> inputPaths = const [],
 }) async {
   try {
     final file = File(filePath);
@@ -119,23 +120,20 @@ Future<void> convertFileEncoding(
       // Extract just the filename from the full path
       final fileName = basename(filePath);
 
-      // Preserve directory structure relative to input directory
-      // First, determine the common base directory from the input paths
-      final inputBaseDir = File(filePath).parent.path;
+      // Find the most appropriate base directory from input paths
+      String baseDir = _findBaseDir(inputPaths, filePath);
 
-      // Calculate path segments to preserve directory structure
-      String relativePath = "";
-
-      // If the input path has subdirectories we want to preserve in the output
-      if (inputBaseDir != dirname(filePath)) {
-        // Get subdirectory structure to preserve
-        final segments = dirname(filePath).split(Platform.pathSeparator);
-        final baseSegments = inputBaseDir.split(Platform.pathSeparator);
-
-        // Extract subdirectory path that needs to be preserved
-        if (segments.length > baseSegments.length) {
-          final preservedSegments = segments.sublist(baseSegments.length);
-          relativePath = preservedSegments.join(Platform.pathSeparator);
+      // Get the subdirectory structure to preserve
+      String subDirPath = "";
+      if (baseDir.isNotEmpty && filePath.startsWith(baseDir)) {
+        // Extract the subdirectory part between baseDir and fileName
+        String dirPart = dirname(filePath);
+        if (dirPart.length > baseDir.length) {
+          subDirPath = dirPart.substring(baseDir.length);
+          // Remove any leading separator if present
+          if (subDirPath.startsWith(Platform.pathSeparator)) {
+            subDirPath = subDirPath.substring(1);
+          }
         }
       }
 
@@ -154,9 +152,9 @@ Future<void> convertFileEncoding(
         decodedFileName = fileName;
       }
 
-      // Create target path preserving directory structure
-      if (relativePath.isNotEmpty) {
-        final targetDir = join(outputDir, relativePath);
+      // Create output path with preserved directory structure
+      if (subDirPath.isNotEmpty) {
+        final targetDir = join(outputDir, subDirPath);
         outputPath = join(targetDir, decodedFileName);
       } else {
         outputPath = join(outputDir, decodedFileName);
@@ -214,6 +212,24 @@ Future<void> convertFileEncoding(
   } catch (e) {
     print("Error processing $filePath: $e");
   }
+}
+
+// Helper function to find the base directory for a file
+String _findBaseDir(List<String> inputPaths, String filePath) {
+  if (inputPaths.isEmpty) return "";
+
+  // Sort input paths by length (descending) so we match the most specific path first
+  final sortedPaths = List<String>.from(inputPaths)
+    ..sort((a, b) => b.length.compareTo(a.length));
+
+  for (final path in sortedPaths) {
+    final dir = Directory(path).existsSync() ? path : dirname(path);
+    if (filePath.startsWith(dir)) {
+      return dir;
+    }
+  }
+
+  return "";
 }
 
 Future<void> main(List<String> arguments) async {
@@ -304,6 +320,7 @@ Future<void> main(List<String> arguments) async {
           outputDir: outputDir,
           verbose: verbose,
           correctFilename: !skipFilenameCorrection,
+          inputPaths: results.rest,
         );
 
         successCount++;
