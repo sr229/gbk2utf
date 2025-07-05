@@ -31,17 +31,6 @@ ArgParser buildParser() {
       negatable: false,
       help: "Process directories recursively.",
     )
-    ..addFlag(
-      "rename-only",
-      negatable: false,
-      help:
-          "Only rename files (decode GBK filenames to UTF-8) without converting content.",
-    )
-    ..addFlag(
-      "skip-filename-correction",
-      negatable: false,
-      help: "Skip correcting GBK-encoded filenames during conversion.",
-    )
     ..addOption(
       "output",
       abbr: "o",
@@ -50,31 +39,25 @@ ArgParser buildParser() {
 }
 
 void printUsage(ArgParser argParser) {
-  print("Usage: dart gbk2utf.dart <flags> [files/directories]");
-  print("\nConverts GBK encoded files to UTF-8.");
+  print("Usage: dart utf2gbk.dart <flags> [files/directories]");
+  print("\nConverts UTF-8 encoded files to GBK.");
   print("\nOptions:");
   print(argParser.usage);
   print("\nExamples:");
   print(
-    "  dart gbk2utf.dart file.txt                    # Convert GBK file to UTF-8 and correct filename",
+    "  dart utf2gbk.dart file.txt                    # Convert UTF-8 file to GBK",
   );
   print(
-    "  dart gbk2utf.dart -b /path/to/directory       # Convert with backup",
+    "  dart utf2gbk.dart -b /path/to/directory       # Convert with backup",
   );
   print(
-    "  dart gbk2utf.dart -r /path/to/directory       # Recursively convert a directory",
+    "  dart utf2gbk.dart -r /path/to/directory       # Recursively convert a directory",
   );
   print(
-    "  dart gbk2utf.dart -o /output/dir file1.txt    # Convert to output directory",
+    "  dart utf2gbk.dart -o /output/dir file1.txt    # Convert to output directory",
   );
   print(
-    "  dart gbk2utf.dart --rename-only directory     # Only rename files with GBK-encoded names",
-  );
-  print(
-    "  dart gbk2utf.dart --skip-filename-correction file.txt   # Convert content only, keep original filenames",
-  );
-  print(
-    "  dart utf2gbk.dart file.txt                    # Convert UTF-8 file to GBK (use utf2gbk)",
+    "  dart gbk2utf.dart file.txt                    # Convert GBK file to UTF-8 (use gbk2utf)",
   );
 }
 
@@ -82,7 +65,6 @@ Future<void> convertFileEncoding(
   String filePath, {
   String? outputDir,
   bool verbose = false,
-  bool correctFilename = true,
 }) async {
   try {
     final file = File(filePath);
@@ -99,48 +81,24 @@ Future<void> convertFileEncoding(
     final sourceBytes = await file.readAsBytes();
     List<int> convertedBytes;
 
-    // Convert GBK to UTF-8
+    // Convert UTF-8 to GBK
     try {
-      // Use our GBK codec to decode GBK to string
-      final decodedString = gbkCodec.decode(sourceBytes);
-      // Then encode as UTF-8
-      convertedBytes = utf8.encode(decodedString);
+      // First decode as UTF-8 to verify it's valid UTF-8
+      final utf8String = utf8.decode(sourceBytes);
+      // Then encode to GBK using our codec
+      convertedBytes = gbkCodec.encode(utf8String);
     } catch (e) {
-      print("Error converting GBK file $filePath: $e");
+      print("Error: File $filePath is not valid UTF-8: $e");
       return;
     }
 
-    // Determine output path - this is where filename correction happens
+    // Determine output path
     String outputPath;
-    String decodedFileName;
 
     if (outputDir != null) {
       // Extract just the filename from the full path
       final fileName = Uri.file(filePath).pathSegments.last;
-
-      // Decode the filename if requested (GBK -> UTF-8)
-      if (correctFilename) {
-        try {
-          decodedFileName = gbkCodec.decode(utf8.encode(fileName));
-          if (decodedFileName != fileName) {
-            if (verbose) {
-              print("Corrected filename: $fileName -> $decodedFileName");
-            }
-          } else {
-            decodedFileName = fileName;
-          }
-        } catch (e) {
-          // If decoding fails, use the original filename
-          print("Warning: Failed to decode filename $fileName: $e");
-          decodedFileName = fileName;
-        }
-      } else {
-        decodedFileName = fileName;
-      }
-
-      outputPath = Uri.directory(
-        outputDir,
-      ).resolve(decodedFileName).toFilePath();
+      outputPath = Uri.directory(outputDir).resolve(fileName).toFilePath();
 
       if (verbose) {
         print("Output path: $outputPath");
@@ -155,35 +113,8 @@ Future<void> convertFileEncoding(
         }
       }
     } else {
-      // When not using output directory, we need to check if we need to rename the file
-      if (correctFilename) {
-        final fileName = Uri.file(filePath).pathSegments.last;
-        try {
-          decodedFileName = gbkCodec.decode(utf8.encode(fileName));
-
-          if (decodedFileName != fileName) {
-            // Filename needs correction
-            final parent = file.parent.path;
-            outputPath = Uri.directory(
-              parent,
-            ).resolve(decodedFileName).toFilePath();
-
-            if (verbose) {
-              print("Corrected filename: $fileName -> $decodedFileName");
-            }
-          } else {
-            // No correction needed
-            outputPath = filePath;
-          }
-        } catch (e) {
-          // If decoding fails, use the original filename
-          print("Warning: Failed to decode filename $fileName: $e");
-          outputPath = filePath;
-        }
-      } else {
-        // No filename correction
-        outputPath = filePath;
-      }
+      // No output directory, just use the original path
+      outputPath = filePath;
     }
 
     // Write converted content
@@ -191,7 +122,7 @@ Future<void> convertFileEncoding(
     await outputFile.writeAsBytes(convertedBytes);
 
     if (verbose) {
-      print("Converted (GBK -> UTF-8): $filePath -> $outputPath");
+      print("Converted (UTF-8 -> GBK): $filePath -> $outputPath");
     }
   } catch (e) {
     print("Error processing $filePath: $e");
@@ -211,7 +142,7 @@ Future<void> main(List<String> arguments) async {
     }
 
     if (results.flag("version")) {
-      print("gbk2utf version: $version");
+      print("utf2gbk version: $version");
       return;
     }
 
@@ -227,35 +158,17 @@ Future<void> main(List<String> arguments) async {
     final bool verbose = results.flag("verbose");
     final bool backup = results.flag("backup");
     final bool recursive = results.flag("recursive");
-    final bool renameOnly = results.flag("rename-only");
-    final bool skipFilenameCorrection = results.flag(
-      "skip-filename-correction",
-    );
     final String? outputDir = results.option("output");
 
     if (verbose) {
       print("Configuration:");
-      if (renameOnly) {
-        print("  Mode: Rename files only (decode GBK filenames)");
-      } else {
-        print("  Mode: GBK to UTF-8");
-      }
+      print("  Mode: UTF-8 to GBK");
       print("  Verbose: $verbose");
       print("  Backup: $backup");
       print("  Recursive: $recursive");
       print('  Output directory: ${outputDir ?? 'overwrite original'}');
-      print("  Correct filenames: ${!skipFilenameCorrection}");
       print("  Input paths: ${results.rest}");
       print("");
-    }
-
-    if (renameOnly) {
-      // Rename files only mode
-      for (final path in results.rest) {
-        await processRename(path, recursive: recursive, verbose: verbose);
-      }
-      print("Renaming completed. Processed ${results.rest.length} paths.");
-      return;
     }
 
     // Regular conversion mode
@@ -280,12 +193,11 @@ Future<void> main(List<String> arguments) async {
           await createBackup(filePath, verbose: verbose);
         }
 
-        // Convert encoding (now with filename correction by default)
+        // Convert encoding
         await convertFileEncoding(
           filePath,
           outputDir: outputDir,
           verbose: verbose,
-          correctFilename: !skipFilenameCorrection,
         );
 
         successCount++;

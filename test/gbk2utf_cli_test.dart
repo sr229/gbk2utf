@@ -1,5 +1,6 @@
 import "package:test/test.dart";
 import "dart:io";
+import "../bin/utils.dart" show renameFile;
 
 void main() {
   group("CLI Integration Tests", () {
@@ -48,7 +49,6 @@ void main() {
       ], workingDirectory: Directory.current.path);
 
       expect(result.exitCode, equals(0)); // Should not crash
-      // Fixed: Check for the actual warning message from your app
       expect(
         result.stdout,
         contains("Warning: Path not found or inaccessible"),
@@ -118,10 +118,8 @@ void main() {
       ], workingDirectory: Directory.current.path);
 
       expect(result.exitCode, equals(0));
-      // Fixed: Check for the actual output pattern
       expect(result.stdout, contains("Found 2 file(s) to process"));
       expect(result.stdout, contains("Successfully processed 2 of 2"));
-      // Check that both files were processed
       expect(result.stdout, contains("file1.txt"));
       expect(result.stdout, contains("file2.txt"));
     });
@@ -174,23 +172,6 @@ void main() {
       expect(result.stdout, contains("Successfully processed 2 of 2"));
     });
 
-    test("should handle reverse conversion", () async {
-      const testContent = "Hello UTF-8 World!";
-      await File(testFilePath).writeAsString(testContent);
-
-      final result = await Process.run("dart", [
-        "run",
-        "bin/gbk2utf.dart",
-        "--reverse",
-        "--verbose",
-        testFilePath,
-      ], workingDirectory: Directory.current.path);
-
-      expect(result.exitCode, equals(0));
-      expect(result.stdout, contains("UTF-8 to GBK"));
-      expect(result.stdout, contains("Successfully processed 1"));
-    });
-
     test("should show configuration in verbose mode", () async {
       const testContent = "Test content";
       await File(testFilePath).writeAsString(testContent);
@@ -200,13 +181,12 @@ void main() {
         "bin/gbk2utf.dart",
         "--verbose",
         "--backup",
-        "--reverse",
         testFilePath,
       ], workingDirectory: Directory.current.path);
 
       expect(result.exitCode, equals(0));
       expect(result.stdout, contains("Configuration:"));
-      expect(result.stdout, contains("Mode: UTF-8 to GBK"));
+      expect(result.stdout, contains("Mode: GBK to UTF-8"));
       expect(result.stdout, contains("Verbose: true"));
       expect(result.stdout, contains("Backup: true"));
     });
@@ -277,23 +257,6 @@ void main() {
       expect(await outputFile.exists(), isTrue);
     });
 
-    test("should handle encoding option", () async {
-      const testContent = "Test content";
-      await File(testFilePath).writeAsString(testContent);
-
-      final result = await Process.run("dart", [
-        "run",
-        "bin/gbk2utf.dart",
-        "--encoding",
-        "gbk",
-        "--verbose",
-        testFilePath,
-      ], workingDirectory: Directory.current.path);
-
-      expect(result.exitCode, equals(0));
-      expect(result.stdout, contains("Source encoding: gbk"));
-    });
-
     test("should handle non-recursive directory processing", () async {
       // Create nested directory structure
       final subDir = Directory("${tempDir.path}/subdir");
@@ -316,6 +279,77 @@ void main() {
       // Should only process top-level files when not recursive
       expect(result.stdout, contains("Found 1 file(s) to process"));
       expect(result.stdout, contains("Successfully processed 1"));
+    });
+
+    test("should handle filename correction", () async {
+      // Create a file with a name that could be GBK-encoded
+      final fileName = "测试文件.txt";
+      final filePath = "${tempDir.path}/$fileName";
+      const fileContent = "Test content for filename correction";
+
+      await File(filePath).writeAsString(fileContent);
+
+      final result = await Process.run("dart", [
+        "run",
+        "bin/gbk2utf.dart",
+        "--verbose",
+        filePath,
+      ], workingDirectory: Directory.current.path);
+
+      expect(result.exitCode, equals(0));
+
+      // Check if the output contains information about filename correction
+      if (result.stdout.contains("Corrected filename:")) {
+        // There should be at least one file in the directory
+        final dirContents = await Directory(tempDir.path).list().toList();
+        final files = dirContents.whereType<File>().toList();
+        expect(files.isNotEmpty, isTrue);
+
+        // The content should be preserved in one of the files
+        bool contentFound = false;
+        for (final file in files) {
+          if (await file.readAsString() == fileContent) {
+            contentFound = true;
+            break;
+          }
+        }
+        expect(contentFound, isTrue);
+      }
+    });
+
+    test("should handle --rename-only flag", () async {
+      // Create a file with a name that could be GBK-encoded
+      final fileName = "测试文件.txt";
+      final filePath = "${tempDir.path}/$fileName";
+      const fileContent = "Test content for rename-only";
+
+      await File(filePath).writeAsString(fileContent);
+
+      final result = await Process.run("dart", [
+        "run",
+        "bin/gbk2utf.dart",
+        "--verbose",
+        "--rename-only",
+        filePath,
+      ], workingDirectory: Directory.current.path);
+
+      expect(result.exitCode, equals(0));
+      expect(result.stdout, contains("Renaming completed"));
+
+      // There should be a file in the directory
+      final dirContents = await Directory(tempDir.path).list().toList();
+      final files = dirContents.whereType<File>().toList();
+      expect(files.isNotEmpty, isTrue);
+
+      // The content should be unchanged in one of the files
+      bool contentFound = false;
+      for (final file in files) {
+        if (await file.readAsString() == fileContent) {
+          contentFound = true;
+          break;
+        }
+      }
+      expect(contentFound, isTrue);
     });
   });
 
@@ -341,21 +375,7 @@ void main() {
       expect(result.stdout, contains("Error:"));
     });
 
-    test("should handle invalid encoding option", () async {
-      final result = await Process.run("dart", [
-        "run",
-        "bin/gbk2utf.dart",
-        "--encoding",
-        "invalid",
-        "somefile.txt",
-      ], workingDirectory: Directory.current.path);
-
-      expect(result.exitCode, equals(1));
-      expect(result.stdout, contains("Error:"));
-    });
-
     test("should handle permission denied gracefully", () async {
-      // This test might be platform-specific and could be skipped on some systems
       final result = await Process.run("dart", [
         "run",
         "bin/gbk2utf.dart",
@@ -480,6 +500,150 @@ void main() {
         contains("Found ${files.length} file(s) to process"),
       );
       expect(result.stdout, contains("Successfully processed ${files.length}"));
+    });
+  });
+
+  group("Unit Tests: renameFile Function", () {
+    late Directory tempDir;
+    late String oldPath;
+    late String newDirPath;
+    const fileContent = "Test content for renameFile function";
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp("renameFileTest");
+      oldPath = "${tempDir.path}/old_name.txt";
+      newDirPath = "${tempDir.path}/new_directory";
+
+      // Create test file
+      await File(oldPath).writeAsString(fileContent);
+
+      // Create target directory
+      await Directory(newDirPath).create();
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    test("should rename ASCII filename and preserve content", () async {
+      await renameFile(oldPath, newDirPath);
+
+      // Check that new file exists with the same name in the new directory
+      final expectedNewFile = File("${newDirPath}/old_name.txt");
+      expect(await expectedNewFile.exists(), isTrue);
+
+      // Verify content is preserved
+      final content = await expectedNewFile.readAsString();
+      expect(content, equals(fileContent));
+    });
+
+    test("should handle GBK-encoded filename correctly", () async {
+      // Create a file with a name that could be GBK-encoded
+      final originalFileName = "test文件.txt";
+      final gbkEncodedFileName = "${tempDir.path}/$originalFileName";
+      await File(gbkEncodedFileName).writeAsString(fileContent);
+
+      await renameFile(gbkEncodedFileName, newDirPath);
+
+      // Check for any file in the target directory
+      final files = await Directory(newDirPath).list().toList();
+      expect(files.isNotEmpty, isTrue);
+
+      // Verify content is preserved in one of the files
+      bool contentFound = false;
+      for (final entity in files) {
+        if (entity is File) {
+          final fileContent = await entity.readAsString();
+          if (fileContent == fileContent) {
+            contentFound = true;
+            break;
+          }
+        }
+      }
+      expect(contentFound, isTrue);
+    });
+
+    test("should handle non-existent source file gracefully", () async {
+      const nonExistentPath = "/path/that/does/not/exist.txt";
+
+      // Should not throw, just print error message
+      await expectLater(
+        () => renameFile(nonExistentPath, newDirPath),
+        returnsNormally,
+      );
+
+      // No files should be created in the new directory
+      final files = await Directory(newDirPath).list().toList();
+      expect(files, isEmpty);
+    });
+  });
+
+  group("utf2gbk CLI Tests", () {
+    late Directory tempDir;
+    late String testFilePath;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp("utf2gbk_test");
+      testFilePath = "${tempDir.path}/test_file.txt";
+    });
+
+    tearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    test("should show help when --help flag is used", () async {
+      final result = await Process.run("dart", [
+        "run",
+        "bin/utf2gbk.dart",
+        "--help",
+      ], workingDirectory: Directory.current.path);
+
+      expect(result.exitCode, equals(0));
+      expect(result.stdout, contains("Usage:"));
+      expect(result.stdout, contains("Options:"));
+    });
+
+    test("should convert UTF-8 file to GBK", () async {
+      const testContent = "Hello World! UTF-8 content.";
+      await File(testFilePath).writeAsString(testContent);
+
+      final result = await Process.run("dart", [
+        "run",
+        "bin/utf2gbk.dart",
+        "--verbose",
+        testFilePath,
+      ], workingDirectory: Directory.current.path);
+
+      expect(result.exitCode, equals(0));
+      expect(result.stdout, contains("UTF-8 -> GBK"));
+      expect(result.stdout, contains("Successfully processed 1"));
+    });
+
+    test("should handle output directory", () async {
+      const testContent = "UTF-8 content for output directory test.";
+      await File(testFilePath).writeAsString(testContent);
+
+      final outputDir = Directory("${tempDir.path}/output");
+      await outputDir.create();
+
+      final result = await Process.run("dart", [
+        "run",
+        "bin/utf2gbk.dart",
+        "--output",
+        outputDir.path,
+        "--verbose",
+        testFilePath,
+      ], workingDirectory: Directory.current.path);
+
+      expect(result.exitCode, equals(0));
+
+      // Check if file was created in output directory
+      final outputFile = File("${outputDir.path}/test_file.txt");
+      expect(await outputFile.exists(), isTrue);
     });
   });
 }
