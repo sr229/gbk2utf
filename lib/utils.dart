@@ -1,4 +1,4 @@
-/// Portions of this code are from the gbk2utf package, licensed under the MIT License.
+/// Portions of this code are from the gbk2utf8 package, licensed under the MIT License.
 /// Copyright (c) 2018 Xueliang Ren
 ///
 /// Permission is hereby granted, free of charge, to any person obtaining a copy
