@@ -97,26 +97,83 @@ List<int> unicode2utf8(List<int> unicodeBytes) {
 }
 
 /// Converts a list of UTF-8 encoded bytes to their corresponding Unicode characters.
-List<int> utf82unicode(List<int> unicodeBytes) {
+List<int> utf82unicode(List<int> utf8Bytes) {
   List<int> loc = [];
 
-  for (int i = 0; i < unicodeBytes.length;) {
-    int byteCount = zPos(unicodeBytes[i]);
-    int sum = unicodeBytes[i] & mask[byteCount];
+  for (int i = 0; i < utf8Bytes.length;) {
+    int firstByte = utf8Bytes[i];
+    int byteCount = zPos(firstByte);
+    int unicode;
 
-    for (int j = 1; j <= byteCount; j++) {
-      if (i + j >= unicodeBytes.length) {
+    if (byteCount == 0) {
+      // Single byte (ASCII)
+      unicode = firstByte;
+      i++;
+    } else {
+      // Multi-byte sequence
+      if (i + byteCount >= utf8Bytes.length) {
         // Incomplete sequence at end of input
-        return loc;
+        break;
       }
-      sum = (sum << 6) | (unicodeBytes[i + j] & 0x3f);
+
+      // Extract the significant bits from the first byte
+      unicode = firstByte & mask[byteCount];
+
+      // Process continuation bytes
+      for (int j = 1; j <= byteCount; j++) {
+        if (i + j >= utf8Bytes.length) {
+          // Incomplete sequence
+          return loc;
+        }
+        unicode = (unicode << 6) | (utf8Bytes[i + j] & 0x3f);
+      }
+
+      i += byteCount + 1;
     }
 
-    i += byteCount > 0 ? byteCount + 1 : 1;
-    loc.add(sum);
+    loc.add(unicode);
   }
 
   return loc;
+}
+
+/// Determines the number of bytes needed to represent a Unicode character in UTF-8.
+/// Returns the number of continuation bytes (so total bytes = return value + 1)
+int zPos(int x) {
+  if ((x & 0x80) == 0) return 0; // 0xxxxxxx = ASCII (0 continuation bytes)
+  if ((x & 0xE0) == 0xC0) return 1; // 110xxxxx = 2-byte (1 continuation byte)
+  if ((x & 0xF0) == 0xE0) return 2; // 1110xxxx = 3-byte (2 continuation bytes)
+  if ((x & 0xF8) == 0xF0) return 3; // 11110xxx = 4-byte (3 continuation bytes)
+  return 4; // Invalid or unsupported
+}
+
+/// Converts a single Unicode character to its corresponding GBK encoding.
+/// Returns 0 if the Unicode character is not in the GBK range.
+int unicode2gbkOne(int unicode) {
+  // Handle ASCII characters directly
+  if (unicode < 0x80) {
+    return unicode;
+  }
+
+  var offset = 0;
+
+  if (unicode >= 0x4e00 && unicode <= 0x9fa5) {
+    // CJK Unified Ideographs range
+    offset = unicode - 0x4e00;
+  } else if (unicode >= 0xff01 && unicode <= 0xff61) {
+    // Fullwidth Forms range
+    offset = unicode - 0xff01 + 0x9fa6 - 0x4e00;
+  } else {
+    // Character not in GBK range
+    return 0;
+  }
+
+  // Check bounds before accessing the array
+  if (offset < 0 || offset >= gbkTables.length) {
+    return 0;
+  }
+
+  return gbkTables[offset];
 }
 
 /// Converts a list of Unicode characters to their corresponding GBK encoding.
@@ -124,44 +181,23 @@ List<int> utf82unicode(List<int> unicodeBytes) {
 List<int> unicode2gbk(List<int> unicodeBytes) {
   List<int> resp = [];
 
-  for (int i = 0, k = resp.length; i < k; i++) {
-    var unicode = resp[i];
+  // Fix the loop - use unicodeBytes.length instead of resp.length
+  for (int i = 0; i < unicodeBytes.length; i++) {
+    var unicode = unicodeBytes[i];
 
-    if (unicode <= 0x8) {
+    if (unicode <= 0x7F) {
+      // ASCII characters
       resp.add(unicode);
     } else {
       var value = unicode2gbkOne(unicode);
 
       if (value == 0) continue;
 
+      // Add high byte and low byte
       resp.add((value >> 8) & 0xff);
       resp.add(value & 0xff);
     }
   }
 
   return resp;
-}
-
-/// Converts a single Unicode character to its corresponding GBK encoding.
-/// Returns 0 if the Unicode character is not in the GBK range.
-int unicode2gbkOne(int unicode) {
-  var offset = 0;
-
-  if (unicode <= 0x9fa5) {
-    offset = unicode - 0x4e00;
-  } else if (unicode > 0x9fa5) {
-    if (unicode < 0xff01 || unicode > 0xff61) return 0;
-    offset = unicode - 0xff01 + 0x9fa6 - 0x4e00;
-  }
-
-  return gbkTables[offset];
-}
-
-/// Determines the number of bytes needed to represent a Unicode character in UTF-8.
-int zPos(int x) {
-  for (int i = 0; i < 5; i++, x <<= 1) {
-    if ((x & 0x8) == 0) return i;
-  }
-
-  return 4;
 }
